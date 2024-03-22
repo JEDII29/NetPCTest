@@ -1,0 +1,283 @@
+﻿@page "/loginpage"
+@using System.Net.Http.Json
+@using System.Threading.Tasks
+@using System.Net.Http
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using System.Net.Http.Headers;
+@using System.Timers;
+@using System.Text;
+@inject IHttpClientFactory ClientFactory
+
+<PageTitle>LoginPage</PageTitle>
+
+
+@if (Token == null || !_tokenValidator.IsJwtValid(Token))
+{
+    <h1>Logowanie</h1>
+
+    <div>
+        <label for="username">Nazwa użytkownika:</label>
+        <input type="text" @bind="Username" id="username" />
+    </div>
+    <div>
+        <label for="password">Hasło:</label>
+        <input type="password" @bind="Password" id="password" />
+    </div>
+    <button @onclick="Login">Zaloguj</button>
+}
+else if (Contacts == null)
+{
+    <h2>Pobieranie danych...</h2>
+}
+else
+{
+    <div style="width: 800px; margin: auto;">
+        <h2>Kontakty użytkownika</h2>
+        <button @onclick="LogOut">Wyloguj</button>
+        <table class = "table">
+            <thead>
+                <tr>
+                    <th>Imię</th>
+                    <th>Nazwisko</th>
+                    <th>Email</th>
+                    <th>Numer telefonu</th>
+                    <th>Data urodzenia</th>
+                    <th>Kategoria</th>
+                    <th>Akcje</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var contact in Contacts)
+                {
+                    <tr>
+                        <td>@contact.Firstname</td>
+                        <td>@contact.Surname</td>
+                        <td>@contact.Email</td>
+                        <td>@contact.PhoneNumber</td>
+                        <td>@contact.BirthDate.ToShortDateString()</td>
+                        <td>@contact.Category</td>
+                        <td>
+                            <button @onclick="() => EditContact(contact)">Edit</button>
+                            <button @onclick="() => DeleteContact(contact)">Delete</button>
+                        </td>
+                    </tr>
+                }
+                <tr>
+                    <td>
+                        <input style="width: 100px;" type="text" @bind="NewContact.Firstname" id="newFirstname" />
+                    </td>
+                    <td>
+                        <input style="width: 100px;" type="text" @bind="NewContact.Surname" id="newSurname" />
+                    </td>
+                    <td>
+                        <input style="width: 200px;" type="text" @bind="NewContact.Email" id="newEmail" />
+                    </td>
+                    <td>
+                        <input style="width: 100px;" type="text" @bind="NewContact.PhoneNumber" id="newPhoneNumber" />
+                    </td>
+                    <td>
+                        <input style="width: 100px;" type="date" @bind="NewContact.BirthDate" id="newBirthDate" />
+                    </td>
+                    <td>
+                        <input style="width: 100px;" type="text" @bind="NewContact.Category" id="newCategory" />
+                    </td>
+                    <!-- Pozostałe pola formularza -->
+                    <button @onclick="CreateContact">Add</button>
+                </tr>
+                @if (editionState)
+                {
+                    <tr>
+                        <td>
+                            <input style="width: 100px;" type="text" @bind="EditedContact.Firstname" id="newFirstname" />
+                        </td>
+                        <td>
+                            <input style="width: 100px;" type="text" @bind="EditedContact.Surname" id="newSurname" />
+                        </td>
+                        <td>
+                            <input style="width: 200px;" type="text" @bind="EditedContact.Email" id="newEmail" />
+                        </td>
+                        <td>
+                            <input style="width: 100px;" type="text" @bind="EditedContact.PhoneNumber" id="newPhoneNumber" />
+                        </td>
+                        <td>
+                            <input style="width: 100px;" type="date" @bind="EditedContact.BirthDate" id="newBirthDate" />
+                        </td>
+                        <td>
+                            <input style="width: 100px;" type="text" @bind="EditedContact.Category" id="newCategory" />
+                        </td>
+                        <!-- Pozostałe pola formularza -->
+                        <button @onclick="() => SaveEdition(EditedContact)">Save</button>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private string Username { get; set; }
+    private string Password { get; set; }
+    private string Token;
+    private bool editionState = false;
+    private List<ContactModel> Contacts { get; set; } = new List<ContactModel>();
+    private ContactModel NewContact { get; set; } = new ContactModel();
+    private ContactModel EditedContact { get; set; } = new ContactModel();
+    private TokenValidator _tokenValidator;
+    private Timer timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tokenValidator = new TokenValidator();
+        _tokenValidator.IsJwtValid(Token);
+        timer = new Timer(5000);
+        timer.Elapsed += async (sender, e) => await CheckTokenValidity(); // Wywołanie metody co 5 sekund
+        timer.Start();
+    }
+
+    public class ContactModel
+    {
+        [JsonPropertyName("firstname")]
+        public string Firstname { get; set; }
+        [JsonPropertyName("surname")]
+        public string Surname { get; set; }
+        [JsonPropertyName("email")]
+        public string Email { get; set; }
+        [JsonPropertyName("phoneNumber")]
+        public string PhoneNumber { get; set; }
+        [JsonPropertyName("birthDate")]
+        public DateTime BirthDate { get; set; }
+        [JsonPropertyName("category")]
+        public string Category { get; set; }
+        [JsonPropertyName("id")]
+        public string Id { get; set; }
+    }
+
+    public class DeleteModel
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; }
+    }
+
+    private async Task CheckTokenValidity()
+    {
+        if (Token != null && !_tokenValidator.IsJwtValid(Token))
+        {
+            Token = null;
+            timer.Stop();
+        }
+    }
+
+    private async Task Login()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"https://localhost:7062/api/Authentication/Login?Username={Username}&Password={Password}");
+        var client = ClientFactory.CreateClient();
+
+        var response = await client.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            Token = await response.Content.ReadAsStringAsync();
+            FetchContacts();
+        }
+        else
+        {
+        }
+
+    }
+
+    private async Task FetchContacts()
+    {
+        Contacts = new List<ContactModel>();
+        var httpClient = new HttpClient();
+        var request = new HttpRequestMessage(HttpMethod.Get, $"https://localhost:7062/api/Contact/GetUserContacts");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        var client = ClientFactory.CreateClient();
+
+        var response = await client.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            using var responseStream = await response.Content.ReadAsStreamAsync();
+            Contacts = new List<ContactModel>();
+            Contacts = await JsonSerializer.DeserializeAsync
+                <List<ContactModel>>(responseStream);
+            StateHasChanged();
+        }
+        else
+        {
+        }
+
+    }
+
+    private async Task CreateContact()
+    {
+        var httpClient = new HttpClient();
+        var request = new HttpRequestMessage(HttpMethod.Post, $"https://localhost:7062/api/Contact/CreateContact");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        var json = JsonSerializer.Serialize(NewContact);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        var client = ClientFactory.CreateClient();
+        var response = await client.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            using var responseStream = await response.Content.ReadAsStreamAsync();
+            FetchContacts();
+        }
+        else
+        {
+        }
+    }
+
+    private void EditContact(ContactModel contact)
+    {
+        EditedContact = new ContactModel();
+        EditedContact = contact;
+        editionState = true;
+        StateHasChanged();
+    }
+    private async Task SaveEdition(ContactModel contact)
+    {
+        editionState = false;
+        var httpClient = new HttpClient();
+        var request = new HttpRequestMessage(HttpMethod.Put, $"https://localhost:7062/api/Contact/EditContact");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        var json = JsonSerializer.Serialize(EditedContact);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        var client = ClientFactory.CreateClient();
+        var response = await client.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            using var responseStream = await response.Content.ReadAsStreamAsync();
+            FetchContacts();
+        }
+        else
+        {
+        }
+    }
+
+    private async Task DeleteContact(ContactModel contact)
+    {
+        DeleteModel deleteModel = new DeleteModel{
+            Id = contact.Id};
+
+        var httpClient = new HttpClient();
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"https://localhost:7062/api/Contact/DeleteContact");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        var json = JsonSerializer.Serialize(deleteModel);
+        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        var client = ClientFactory.CreateClient();
+        var response = await client.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+        {
+            using var responseStream = await response.Content.ReadAsStreamAsync();
+            FetchContacts();
+        }
+        else
+        {
+        }
+    }
+    private void LogOut()
+    {
+        Token = null;
+        StateHasChanged();
+    }
+}

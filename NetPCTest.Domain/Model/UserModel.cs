@@ -1,16 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace NetPCTest.Data.Entities
+namespace NetPCTest.Domain.Model
 {
-    public class BaseEntity
+    public class UserModel
     {
-        [Key]
-        [Required]
+        public string Username{ get; set; }
         public Guid Id { get; set; }
     }
 }
